@@ -1,0 +1,8 @@
+; $Id$
+name = Mollie iDEAL
+description = Provides iDEAL payment through Mollie.
+dependencies[] = uc_cart
+dependencies[] = uc_payment
+package = "Ubercart - payment"
+core = 6.x
+php = 5.0
