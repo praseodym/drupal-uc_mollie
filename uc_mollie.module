@@ -91,11 +91,25 @@ function uc_payment_method_mollie($op, &$arg1) {
       return uc_strip_form($details);
       
     case 'settings':
+      global $base_url;
+    
       $form['uc_mollie_partner_id'] = array(
         '#type' => 'textfield',
         '#title' => t('Partner ID'),
         '#default_value' => variable_get('uc_mollie_partner_id', ''),
         '#description' => t('Your Mollie partner ID.'),
+      );
+      $form['uc_mollie_return_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Return URL'),
+        '#default_value' => variable_get('uc_mollie_return_url', $base_url . '/cart/checkout/mollie/return'),
+        '#description' => t('The url the customer is redirected to after payment. WARNING: changing this variable can break the module.'),
+      );
+      $form['uc_mollie_report_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Report URL'),
+        '#default_value' => variable_get('uc_mollie_report_url', $base_url . '/cart/checkout/mollie/report'),
+        '#description' => t('The payment callback, this is where the transaction object is send to. WARNING: changing this variable can break the module.'),
       );
       $form['uc_mollie_test_mode'] = array(
         '#type' => 'checkbox',
@@ -117,7 +131,7 @@ function uc_mollie_order($op, &$arg1, $arg2) {
         uc_mollie_call($arg1, $arg2);
         exit;
       }
-			
+      
     case 'save':
       break;
 
@@ -146,8 +160,8 @@ function theme_uc_mollie_payment_form($form) {
  ******************************************************************************/
 
 function uc_mollie_payment_form($form_state, $order) {
-	// Init iDEAL class
-	$iDEAL = new iDEAL_Payment(variable_get('uc_mollie_partner_id', ''));
+  // Init iDEAL class
+  $iDEAL = new iDEAL_Payment(variable_get('uc_mollie_partner_id', ''));
   $iDEAL->setTestmode(variable_get('uc_mollie_test_mode', 0));
    
   $form['uc_mollie_bank'] = array(
@@ -171,30 +185,30 @@ function uc_mollie_payment_form($form_state, $order) {
 function uc_mollie_call($arg1, $arg2) {
   global $base_url;
   
-	// Init iDEAL class
+  // Init iDEAL class
   $iDEAL = new iDEAL_Payment(variable_get('uc_mollie_partner_id', ''));
   $iDEAL->setTestmode(variable_get('uc_mollie_test_mode', 0));
-	
-  $return_url = $base_url . '/cart/checkout/mollie/return';
-  $report_url = $base_url . '/cart/checkout/mollie/report';
-	
-	// Transaction object
-	$transaction = new stdClass();
-	$transaction->order_id 		= $arg1->order_id;
-	$transaction->bank_id 		= check_plain($_SESSION['uc_mollie']['bank_id']);
-	$transaction->status 			= 0;
-	$transaction->amount 			= round($arg1->order_total * 100);
-  $transaction->description	= t("Order @order_id - @site_name", array('@order_id' => $arg1->order_id, '@site_name' => variable_get('site_name', '')));
+  
+  $return_url = variable_get('uc_mollie_return_url', $base_url . '/cart/checkout/mollie/return');
+  $report_url = variable_get('uc_mollie_report_url', $base_url . '/cart/checkout/mollie/report');
+  
+  // Transaction object
+  $transaction = new stdClass();
+  $transaction->order_id     = $arg1->order_id;
+  $transaction->bank_id     = check_plain($_SESSION['uc_mollie']['bank_id']);
+  $transaction->status       = 0;
+  $transaction->amount       = round($arg1->order_total * 100);
+  $transaction->description  = t("Order @order_id - @site_name", array('@order_id' => $arg1->order_id, '@site_name' => variable_get('site_name', '')));
   
   // Create transaction and start payment through Mollie
-	if ($iDEAL->createPayment($transaction->bank_id, $transaction->amount, $transaction->description, $return_url, $report_url)) {
-		$transaction->transaction_id = $iDEAL->getTransactionId();
-		$_SESSION['uc_mollie']['order_id'] = $transaction->order_id;
-		$_SESSION['uc_mollie']['transaction_id'] = $transaction->transaction_id;
-		
-		uc_mollie_transaction_save($transaction); // save object for verification
+  if ($iDEAL->createPayment($transaction->bank_id, $transaction->amount, $transaction->description, $return_url, $report_url)) {
+    $transaction->transaction_id = $iDEAL->getTransactionId();
+    $_SESSION['uc_mollie']['order_id'] = $transaction->order_id;
+    $_SESSION['uc_mollie']['transaction_id'] = $transaction->transaction_id;
     
-		header("Location: " . $iDEAL->getBankURL()); // Goto Mollie
+    uc_mollie_transaction_save($transaction); // save object for verification
+    
+    header("Location: " . $iDEAL->getBankURL()); // Goto Mollie
     exit;  
   }else{
     watchdog('uc_mollie', 'Payment creation failed. Error message: %error', array('%error' => $iDEAL->getErrorMessage()), WATCHDOG_ERROR);
@@ -208,91 +222,87 @@ function uc_mollie_call($arg1, $arg2) {
  * No real validation of payment here. This happens in the report callback.
  */
 function uc_mollie_return() {
-	$goto = 'cart/checkout';
+  $goto = 'cart/checkout';
 
-	// No transaction
-	if(!$_SESSION['uc_mollie']['transaction_id'] || !$_GET['transaction_id']) { 
-	  //print "Session".$_SESSION['uc_mollie']['transaction_id'];
-		//print "Get".$_GET['transaction_id'];
-		//print "Session".$_SESSION['uc_mollie']['order_id'];
-		//exit;
-		watchdog('uc_mollie', 'Empty transaction ID.', array(), WATCHDOG_ERROR);
-	  drupal_set_message(t('Something went wrong during the iDEAL payment. Please try again.'), 'error');
-	
-	// No match	
-	}elseif($_SESSION['uc_mollie']['transaction_id'] !== $_GET['transaction_id']) { 
-		watchdog('uc_mollie', 'Transaction ID`s do not match.', array(), WATCHDOG_ERROR);
-	  drupal_set_message(t('Something went wrong during the iDEAL payment. Please try again.'), 'error');
-	
-	}elseif($transaction = uc_mollie_transaction_get($_SESSION['uc_mollie']['transaction_id'])) {
-		// Complete
-		if($transaction->status) {
-			$_SESSION['do_complete'] = TRUE;
-			$goto = 'cart/checkout/complete';
-		
-		// Not Paid
-		}else{
-			watchdog('uc_mollie', 'The payment was cancelled.', array(), WATCHDOG_WARNING);
-			drupal_set_message(t('The payment was cancelled.'), 'error');
-		}
-	
-	// General Error	
+  // No transaction
+  if(!$_SESSION['uc_mollie']['transaction_id'] || !$_GET['transaction_id']) { 
+    watchdog('uc_mollie', 'Empty transaction ID.', array(), WATCHDOG_ERROR);
+    drupal_set_message(t('Something went wrong during the iDEAL payment. Please try again.'), 'error');
+  
+  // No match  
+  }elseif($_SESSION['uc_mollie']['transaction_id'] !== $_GET['transaction_id']) { 
+    watchdog('uc_mollie', 'Transaction ID`s do not match.', array(), WATCHDOG_ERROR);
+    drupal_set_message(t('Something went wrong during the iDEAL payment. Please try again.'), 'error');
+  
+  }elseif($transaction = uc_mollie_transaction_get($_SESSION['uc_mollie']['transaction_id'])) {
+    // Complete
+    if($transaction->status) {
+      $_SESSION['do_complete'] = TRUE;
+      $goto = 'cart/checkout/complete';
+    
+    // Not Paid
+    }else{
+      watchdog('uc_mollie', 'The payment was cancelled.', array(), WATCHDOG_WARNING);
+      drupal_set_message(t('The payment was cancelled.'), 'error');
+    }
+  
+  // General Error  
   }else{
     drupal_set_message(t('Something went wrong during the iDEAL payment. Please try again.'), 'error'); 
   }
-	
-	unset($_SESSION['uc_mollie']); 
-	drupal_goto($goto);
+  
+  unset($_SESSION['uc_mollie']); 
+  drupal_goto($goto);
 }
 
 /**
  * Report callback
  */
-function uc_mollie_report() {	
-	if($transaction = uc_mollie_transaction_get($_GET['transaction_id'])) {
-		// Init iDEAL class
-		$iDEAL = new iDEAL_Payment(variable_get('uc_mollie_partner_id', ''));
-		$iDEAL->setTestmode(variable_get('uc_mollie_test_mode', 0));
-		$iDEAL->checkPayment($transaction->transaction_id);
+function uc_mollie_report() {  
+  if($transaction = uc_mollie_transaction_get($_GET['transaction_id'])) {
+    // Init iDEAL class
+    $iDEAL = new iDEAL_Payment(variable_get('uc_mollie_partner_id', ''));
+    $iDEAL->setTestmode(variable_get('uc_mollie_test_mode', 0));
+    $iDEAL->checkPayment($transaction->transaction_id);
 
-		// Complete payment
-		if((bool)$iDEAL->getPaidStatus() && !(bool)$transaction->status) {
-			$message = t('Succesfull Mollie payment received for order @order_id', array('@order_id' => $transaction->order_id));
+    // Complete payment
+    if((bool)$iDEAL->getPaidStatus() && !(bool)$transaction->status) {
+      $message = t('Succesfull Mollie payment received for order @order_id', array('@order_id' => $transaction->order_id));
 
-			// Enter payment
-			uc_payment_enter($transaction->order_id, 'mollie', round($transaction->amount / 100), 0, array('transaction_id' => $transaction->transaction_id), $message);
+      // Enter payment
+      uc_payment_enter($transaction->order_id, 'mollie', $transaction->amount, 0, array('transaction_id' => $transaction->transaction_id), $message);
 
-			// Save comment
-			uc_order_comment_save($transaction->order_id, 0, $message, 'order');
-			
-			// Update status
-			uc_mollie_transaction_status_update($transaction->transaction_id, 1);
-		}
-	}else{
-		watchdog('uc_mollie', 'Unkown transaction ID.', array(), WATCHDOG_WARNING);
-	}
-	
-	print "Als tranen een trap konden bouwen en herinneringen een brug, dan klom ik naar de hemel en nam ik je terug.";
-	exit;
+      // Save comment
+      uc_order_comment_save($transaction->order_id, 0, $message, 'admin');
+      
+      // Update status
+      uc_mollie_transaction_status_update($transaction->transaction_id, 1);
+    }
+  }else{
+    watchdog('uc_mollie', 'Unkown transaction ID.', array(), WATCHDOG_WARNING);
+  }
+  
+  print "Als tranen een trap konden bouwen en herinneringen een brug, dan klom ik naar de hemel en nam ik je terug.";
+  exit;
 }
 
 function uc_mollie_transaction_save($transaction) {
-	(object)$transaction;
-	
-	db_query("INSERT INTO {uc_payment_mollie} (order_id, transaction_id, bank_id, description, amount, status) VALUES (%d, '%s', %d, '%s', %f, %d)", 
-						$transaction->order_id,
-						$transaction->transaction_id,
-						$transaction->bank_id,
-						$transaction->description,
-						$transaction->amount,
-						$transaction->status);
+  (object)$transaction;
+  
+  db_query("INSERT INTO {uc_payment_mollie} (order_id, transaction_id, bank_id, description, amount, status) VALUES (%d, '%s', %d, '%s', %f, %d)", 
+    $transaction->order_id,
+    $transaction->transaction_id,
+    $transaction->bank_id,
+    $transaction->description,
+    $transaction->amount,
+    $transaction->status);
 }
 
 function uc_mollie_transaction_get($transaction_id) {
-	$result = db_fetch_object(db_query("SELECT * FROM {uc_payment_mollie} WHERE transaction_id = '%s'", check_plain($transaction_id)));
-	return $result;
+  $result = db_fetch_object(db_query("SELECT * FROM {uc_payment_mollie} WHERE transaction_id = '%s'", check_plain($transaction_id)));
+  return $result;
 }
 
 function uc_mollie_transaction_status_update($transaction_id, $status = 0) {
-	db_query("UPDATE {uc_payment_mollie} SET status = %d WHERE transaction_id = '%s'", $status, $transaction_id);
+  db_query("UPDATE {uc_payment_mollie} SET status = %d WHERE transaction_id = '%s'", $status, $transaction_id);
 }
