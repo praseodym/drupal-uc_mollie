@@ -270,7 +270,7 @@ function uc_mollie_report() {
       $message = t('Succesfull Mollie payment received for order @order_id', array('@order_id' => $transaction->order_id));
 
       // Enter payment
-      uc_payment_enter($transaction->order_id, 'mollie', $transaction->amount, 0, array('transaction_id' => $transaction->transaction_id), $message);
+      uc_payment_enter($transaction->order_id, 'mollie', round($transaction->amount / 100, 2), 0, array('transaction_id' => $transaction->transaction_id), $message);
 
       // Save comment
       uc_order_comment_save($transaction->order_id, 0, $message, 'admin');
