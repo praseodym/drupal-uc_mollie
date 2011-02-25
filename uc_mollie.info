@@ -1,4 +1,3 @@
-; $Id$
 name = Mollie iDEAL
 description = Provides iDEAL payment through Mollie.
 dependencies[] = uc_cart
