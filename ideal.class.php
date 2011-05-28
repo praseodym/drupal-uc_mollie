@@ -1,4 +1,5 @@
 <?php
+// $Id: ideal.class.php,v 1.1 2010/06/23 11:30:25 docc Exp $
 
 /*-----------------------------------------------------------------------
   Start              : 24 februari 2009
@@ -18,6 +19,7 @@ class iDEAL_Payment
 	const     MIN_TRANS_AMOUNT = 118;
 
 	protected $partner_id      = null;
+	protected $profile_key     = null;
 	protected $testmode        = false;
 
 	protected $bank_id         = null;
@@ -39,11 +41,12 @@ class iDEAL_Payment
 	protected $api_host        = 'ssl://secure.mollie.nl';
 	protected $api_port        = 443;
 
-	public function __construct ($partner_id, $api_host = 'ssl://secure.mollie.nl', $api_port = 443)
+	public function __construct ($partner_id, $profile_key = '',$api_host = 'ssl://secure.mollie.nl', $api_port = 443)
 	{
 		$this->partner_id = $partner_id;
 		$this->api_host   = $api_host;
 		$this->api_port   = $api_port;
+		$this->profile_key   = $profile_key;
 	}
 
 	// Haal de lijst van beschikbare banken
@@ -105,6 +108,7 @@ class iDEAL_Payment
 			'description' => $this->getDescription(),
 			'reporturl'   => $this->getReportURL(),
 			'returnurl'   => $this->getReturnURL(),
+			'profile_key' => $this->getProfileKey(),
 		);
 
 		$create_xml = $this->_sendRequest(
@@ -295,7 +299,10 @@ class iDEAL_Payment
 	{
 		return $this->partner_id;
 	}
-
+	public function getProfileKey ()
+	{
+		return $this->profile_key;
+	}
 	public function setTestmode ($enable = true)
 	{
 		return ($this->testmode = $enable);
