@@ -201,13 +201,13 @@ function uc_mollie_call($arg1, $arg2) {
   // Transaction object
   $transaction = new stdClass();
   $transaction->order_id     = $arg1->order_id;
-  $transaction->bank_id     = check_plain($_SESSION['uc_mollie']['bank_id']);
+  $transaction->bank_id      = check_plain($_SESSION['uc_mollie']['bank_id']);
   $transaction->status       = 0;
-  $transaction->amount       = round($arg1->order_total * 100);
+  $transaction->amount       = $arg1->order_total;
   $transaction->description  = t("Order @order_id - @site_name", array('@order_id' => $arg1->order_id, '@site_name' => variable_get('site_name', '')));
   
   // Create transaction and start payment through Mollie
-  if ($iDEAL->createPayment($transaction->bank_id, $transaction->amount, $transaction->description, $return_url, $report_url)) {
+  if ($iDEAL->createPayment($transaction->bank_id, round($transaction->amount * 100), $transaction->description, $return_url, $report_url)) {
     $transaction->transaction_id = $iDEAL->getTransactionId();
     $_SESSION['uc_mollie']['order_id'] = $transaction->order_id;
     $_SESSION['uc_mollie']['transaction_id'] = $transaction->transaction_id;
