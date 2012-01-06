@@ -78,12 +78,12 @@ function uc_payment_method_mollie($op, &$order, $form = NULL, &$form_state = NUL
       return $details;
       
     case 'cart-process':
-      $order->payment_details['bank_id'] = check_plain($form_state['values']['panes']['payment']['details']['uc_mollie_bank']);
+      $order->payment_details['bank_id'] = check_plain($form_state['values']['panes']['payment']['details']['uc_mollie_bank']); // Why the hell does this not pass to order-submit?
+      $_SESSION['uc_mollie']['bank_id'] = $order->payment_details['bank_id']; 
       return TRUE;
 
     case 'order-details':
       $details = uc_mollie_payment_form(array(), $form_state, $order);
-
       return $details;
     
     case 'order-submit':
@@ -190,7 +190,7 @@ function uc_mollie_call($order) {
   // Transaction object
   $transaction = new stdClass();
   $transaction->order_id     = $order->order_id;
-  $transaction->bank_id      = check_plain($order->payment_details['bank_id']);
+  $transaction->bank_id      = check_plain($_SESSION['uc_mollie']['bank_id']);
   $transaction->status       = 0;
   $transaction->amount       = $order->order_total;
   $transaction->description  = t("Order @order_id - @site_name", array('@order_id' => $order->order_id, '@site_name' => variable_get('site_name', '')));
@@ -282,22 +282,19 @@ function uc_mollie_report() {
 }
 
 function uc_mollie_transaction_save($transaction) {
-  (object)$transaction;
-  
-  db_query("INSERT INTO {uc_payment_mollie} (order_id, transaction_id, bank_id, description, amount, status) VALUES (%d, '%s', %d, '%s', %f, %d)", 
-    $transaction->order_id,
-    $transaction->transaction_id,
-    $transaction->bank_id,
-    $transaction->description,
-    $transaction->amount,
-    $transaction->status);
+  (array)$transaction;
+  drupal_write_record('uc_payment_mollie', $transaction);
 }
 
 function uc_mollie_transaction_get($transaction_id) {
-  $result = db_fetch_object(db_query("SELECT * FROM {uc_payment_mollie} WHERE transaction_id = '%s'", check_plain($transaction_id)));
-  return $result;
+  return db_query("SELECT * FROM {uc_payment_mollie} WHERE transaction_id = :transaction_id", array(':transaction_id' => $transaction_id))->fetchObject();
 }
 
 function uc_mollie_transaction_status_update($transaction_id, $status = 0) {
-  db_query("UPDATE {uc_payment_mollie} SET status = %d WHERE transaction_id = '%s'", $status, $transaction_id);
+  db_update('uc_payment_mollie')
+    ->fields(array(
+      'status' => $status,
+    ))
+    ->condition('transaction_id', check_plain($transaction_id))
+    ->execute();
 }
