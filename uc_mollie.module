@@ -1,12 +1,11 @@
 <?php
-// $Id: uc_mollie.module,v 1.2 2010/09/12 15:34:37 docc Exp $
 
 /**
  * @file Provides support for Mollie iDEAL
  * Sjoerd Arendsen | Optixdesigns
  */
 
-include_once('ideal.class.php'); // Mollie iDEAL API class
+//include_once('ideal.class.php'); // Mollie iDEAL API class
 
 /*******************************************************************************
  * Hook Functions (Drupal)
@@ -52,9 +51,9 @@ function uc_mollie_init() {
  ******************************************************************************/
 
 /**
- * Implementation of hook_payment_method().
+ * Implementation of hook_uc_payment_method().
  */
-function uc_mollie_payment_method() {
+function uc_mollie_uc_payment_method() {
   $methods[] = array(
     'id' => 'mollie',
     'name' => t('iDEAL - Mollie'),
@@ -72,23 +71,32 @@ function uc_mollie_payment_method() {
 /**
  * Handle the payment method "Mollie."
  */
-function uc_payment_method_mollie($op, &$arg1) {
+function uc_payment_method_mollie($op, &$order, $form = NULL, &$form_state = NULL) {
   switch ($op) {
     case 'cart-details':
-      $details = drupal_get_form('uc_mollie_payment_form', $arg1);
-      return uc_strip_form($details);
+      $details = uc_mollie_payment_form(array(), $form_state, $order);
+      return $details;
       
     case 'cart-process':
-      if(!$_POST['uc_mollie_bank'])
-        return FALSE;
-      
-      $arg1->payment_details['bank_id'] = check_plain($_POST['uc_mollie_bank']);
-      $_SESSION['uc_mollie']['bank_id'] = $arg1->payment_details['bank_id'];
+      $order->payment_details['bank_id'] = check_plain($form_state['values']['panes']['payment']['details']['uc_mollie_bank']);
       return TRUE;
 
     case 'order-details':
-      $details = drupal_get_form('uc_mollie_payment_form', $arg1);
-      return uc_strip_form($details);
+      $details = uc_mollie_payment_form(array(), $form_state, $order);
+
+      return $details;
+    
+    case 'order-submit':
+      if ($order->payment_method === 'mollie') {
+        uc_mollie_call($order);
+        exit;
+      }
+    
+    case 'order-delete':
+      db_delete('uc_payment_mollie')
+        ->condition('order_id', $order->order_id)
+        ->execute();
+      break;  
       
     case 'settings':
       global $base_url;
@@ -124,25 +132,6 @@ function uc_payment_method_mollie($op, &$arg1) {
         '#description' => t('Enable test mode.'),
       );
       return $form;
-  }
-}
-
-/**
- * Implementation of hook_order().
- */
-function uc_mollie_order($op, &$arg1, $arg2) {
-  switch ($op) {
-    case 'submit':
-      if ($arg1->payment_method === 'mollie') {
-        uc_mollie_call($arg1, $arg2);
-        exit;
-      }
-      
-    case 'save':
-      break;
-
-    case 'delete':
-      break;
   }
 }
 
@@ -188,7 +177,7 @@ function uc_mollie_payment_form($form_state, $order) {
  * Create transaction and start payment through the Mollie gateway.
  * TODO create a "going of the site" page
  */
-function uc_mollie_call($arg1, $arg2) {
+function uc_mollie_call($order) {
   global $base_url;
   
   // Init iDEAL class
@@ -200,11 +189,11 @@ function uc_mollie_call($arg1, $arg2) {
   
   // Transaction object
   $transaction = new stdClass();
-  $transaction->order_id     = $arg1->order_id;
-  $transaction->bank_id      = check_plain($_SESSION['uc_mollie']['bank_id']);
+  $transaction->order_id     = $order->order_id;
+  $transaction->bank_id      = check_plain($order->payment_details['bank_id']);
   $transaction->status       = 0;
-  $transaction->amount       = $arg1->order_total;
-  $transaction->description  = t("Order @order_id - @site_name", array('@order_id' => $arg1->order_id, '@site_name' => variable_get('site_name', '')));
+  $transaction->amount       = $order->order_total;
+  $transaction->description  = t("Order @order_id - @site_name", array('@order_id' => $order->order_id, '@site_name' => variable_get('site_name', '')));
   
   // Create transaction and start payment through Mollie
   if ($iDEAL->createPayment($transaction->bank_id, round($transaction->amount * 100), $transaction->description, $return_url, $report_url)) {
